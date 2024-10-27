@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeoToken Monitor</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #1a1a1a;
+            color: #f0f0f0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #map { height: 70vh; width: 100%; margin-top: 10px; }
+        #username-input { margin: 20px; }
+        #start-tracking { padding: 10px; background-color: #4CAF50; color: white; border: none; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h3>GeoToken Monitor</h3>
+    <div id="username-input">
+        <label for="username">Insira seu nome de usuário:</label>
+        <input type="text" id="username" required>
+        <button id="start-tracking">Iniciar Monitoramento</button>
+    </div>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+    <script>
+        let map, userMarker, geofenceCircle, markerCluster;
+        let erbsData = []; // Dados das ERBs carregados do JSON
+        const radius = 1000; // Raio da geofence em metros
+        let username = '';
+        const apiUrl = 'https://sua_api_ngrok/upload'; // Substitua pela URL correta da API
+
+        document.getElementById('start-tracking').onclick = () => {
+            username = document.getElementById('username').value.trim();
+            if (username) {
+                document.getElementById('username-input').style.display = 'none';
+                initializeMap();
+            } else {
+                alert("Por favor, insira um nome de usuário.");
+            }
+        };
+
+        function initializeMap() {
+            map = L.map('map').setView([-23.5505, -46.6333], 15);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(map);
+
+            markerCluster = L.markerClusterGroup(); // Inicializa o cluster de marcadores
+
+            loadERBs(); // Carregar ERBs no mapa
+            startUserTracking(); // Inicia o rastreamento da posição do usuário
+        }
+
+        // Rastreamento da posição do usuário com geofence
+        function startUserTracking() {
+            if (navigator.geolocation) {
+                navigator.geolocation.watchPosition(updateUserLocation, handleLocationError, { enableHighAccuracy: true });
+            } else {
+                alert("Geolocalização não é suportada pelo seu navegador.");
+            }
+        }
+
+        function updateUserLocation(position) {
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+            const userPosition = [lat, lon];
+
+            if (!userMarker) {
+                userMarker = L.marker(userPosition, { icon: createUserIcon() }).addTo(map);
+                userMarker.bindPopup(`<b>Usuário:</b> ${username}<br><b>Posição:</b> [${lat.toFixed(5)}, ${lon.toFixed(5)}]`);
+            } else {
+                userMarker.setLatLng(userPosition);
+            }
+
+            // Atualiza ou cria a geofence
+            if (!geofenceCircle) {
+                geofenceCircle = L.circle(userPosition, { radius, color: 'blue', fillOpacity: 0.2 }).addTo(map);
+            } else {
+                geofenceCircle.setLatLng(userPosition);
+            }
+
+            map.setView(userPosition, 15); // Centraliza o mapa na posição do usuário
+
+            const nearbyERBs = getNearbyERBs(userPosition); // Filtra ERBs dentro da geofence
+            sendUserDataToAPI(userPosition, nearbyERBs); // Envia dados para a API
+        }
+
+        function handleLocationError(error) {
+            console.error(`Erro ao acessar geolocalização: ${error.message}`);
+        }
+
+        // Carrega dados das ERBs e adiciona ao mapa
+        function loadERBs() {
+            const erbFilePath = './data/geoerb24v1.json'; // Caminho atualizado para o JSON
+
+            fetch(erbFilePath)
+                .then(response => {
+                    if (!response.ok) throw new Error(`Erro ao carregar o arquivo JSON das ERBs: ${response.status}`);
+                    return response.json();
+                })
+                .then(data => {
+                    erbsData = data;
+                    erbsData.forEach(erbs => {
+                        const marker = L.marker([erbs.Latitude, erbs.Longitude], { icon: createERBIcon() })
+                            .bindPopup(`ERB: ${erbs.NumEstacao}`);
+                        markerCluster.addLayer(marker);
+                    });
+                    map.addLayer(markerCluster);
+                })
+                .catch(error => {
+                    console.error("Erro ao carregar ERBs:", error);
+                    alert(`Falha ao carregar as ERBs. Verifique o caminho do arquivo JSON: ${erbFilePath}`);
+                });
+        }
+
+        // Ícone personalizado do usuário
+        function createUserIcon() {
+            return L.icon({
+                iconUrl: './asset/user-icon-red.png', // Atualize para o caminho correto
+                iconSize: [30, 30],
+                iconAnchor: [15, 30],
+                popupAnchor: [0, -30]
+            });
+        }
+
+        // Ícone personalizado para as ERBs
+        function createERBIcon() {
+            return L.icon({
+                iconUrl: './asset/erb-icon.png', // Atualize para o caminho correto
+                iconSize: [21, 21],
+                iconAnchor: [10.5, 21],
+                popupAnchor: [0, -21]
+            });
+        }
+
+        // Filtra ERBs dentro da geofence e retorna array com coordenadas e nomes
+        function getNearbyERBs(userPosition) {
+            return erbsData.filter(erbs => map.distance(userPosition, [erbs.Latitude, erbs.Longitude]) <= radius)
+                           .map(erbs => ({ nome: erbs.NumEstacao, coordenadas: [erbs.Latitude, erbs.Longitude] }));
+        }
+
+        // Envia dados para a API
+        async function sendUserDataToAPI(userPosition, nearbyERBs) {
+            const payload = {
+                username: username,
+                timestamp: new Date().toISOString(),
+                user_position: userPosition,
+                erbs: nearbyERBs
+            };
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) throw new Error(`Erro na resposta da API: ${response.statusText}`);
+                console.log("Dados enviados com sucesso:", payload);
+            } catch (error) {
+                console.error("Erro ao enviar dados para a API:", error);
+            }
+        }
+    </script>
+</body>
+</html>
