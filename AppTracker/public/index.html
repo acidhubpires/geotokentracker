@@ -37,9 +37,10 @@
         let erbsData = []; // Dados das ERBs carregados do JSON
         const radius = 1000; // Raio da geofence em metros
         let username = '';
-        const apiUrl = 'https://da60-189-4-50-133.ngrok-free.app/upload'; // Substitua pela URL correta da API
+        const apiUrl = 'https://403f-189-4-50-133.ngrok-free.app/track'; // Substitua pela URL correta da API
 
-        document.getElementById('start-tracking').onclick = () => {
+        document.getElementById('start-tracking').onclick = (event) => {
+            event.preventDefault(); // Impede o recarregamento da página
             username = document.getElementById('username').value.trim();
             if (username) {
                 document.getElementById('username-input').style.display = 'none';
@@ -151,6 +152,7 @@
         }
 
         // Envia dados para a API
+
         async function sendUserDataToAPI(userPosition, nearbyERBs) {
             const payload = {
                 username: username,
@@ -166,12 +168,18 @@
                     body: JSON.stringify(payload)
                 });
 
-                if (!response.ok) throw new Error(`Erro na resposta da API: ${response.statusText}`);
-                console.log("Dados enviados com sucesso:", payload);
+                if (!response.ok) {
+                    throw new Error(`Erro na resposta da API: ${response.statusText}`);
+                }
+
+                // Log para depuração
+                const data = await response.json();
+                console.log("Dados enviados com sucesso:", data);
+
             } catch (error) {
                 console.error("Erro ao enviar dados para a API:", error);
             }
-        }
+        }        
     </script>
 </body>
 </html>
